@@ -1,0 +1,172 @@
+<html lang="en">
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta charset="utf-8" />
+
+        <!-- The Viewer CSS -->
+        <link
+            rel="stylesheet"
+            href="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/style.min.css"
+            type="text/css"
+        />
+
+        <!-- Developer CSS -->
+        <style>
+            body {
+                margin: 0;
+            }
+
+            #MyConytainerDiv {
+                width: 100%;
+                height: 100%;
+                position: relative;
+            }
+
+            #MyViewerDiv {
+                width: 100%;
+                height: 100%;
+                margin: 0;
+            }
+        </style>
+
+        <title>Showing Fusion Team Shared models</title>
+    </head>
+
+    <body>
+        <!-- The Viewer will be instantiated here -->
+        <div id="MyConytainerDiv">
+			<button onclick="activateTool(viewer)">Activate Tool</button>
+            <div id="MyViewerDiv"></div>
+        </div>
+
+        <!-- The Viewer JS -->
+        <script src="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/viewer3D.js"></script>
+
+        <!-- Developer JS -->
+        <script>
+            // this is the iframe URL that shows up when sharing a model embed on a page
+            const embedURLfromFusion =
+                "https://autodesk3743.autodesk360.com/shares/public/SHabee1QT1a327cf2b7a174096650e4352bf?mode=embed"; // Stirling Engine
+            let viewer;
+
+            async function getURN(callback) {
+                const ret = await fetch(
+                    embedURLfromFusion
+                        .replace("public", "metadata")
+                        .replace("mode=embed", "")
+                );
+                const metadata = await ret.json();
+                const urn = btoa(metadata.success.body.urn)
+                    .replace("/", "_")
+                    .replace("=", "");
+
+                callback(urn);
+            }
+
+            async function getToken(callback) {
+                const ret = await fetch(
+                    embedURLfromFusion
+                        .replace("public", "sign")
+                        .replace("mode=embed", "oauth2=true"),
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                        },
+                        body: "{}",
+                    }
+                );
+                const oauth = await ret.json();
+
+                callback(oauth.accessToken, oauth.validitySeconds);
+            }
+
+            getURN(function (urn) {
+                const options = {
+                    env: "AutodeskProduction",
+                    getAccessToken: getToken,
+                };
+                const documentId = "urn:" + urn;
+                Autodesk.Viewing.Initializer(options, function onInitialized() {
+                    Autodesk.Viewing.Document.load(
+                        documentId,
+                        onDocumentLoadSuccess
+                    );
+                });
+            });
+
+            /**
+             * Autodesk.Viewing.Document.load() success callback.
+             * Proceeds with model initialization.
+             */
+            async function onDocumentLoadSuccess(doc) {
+                // A document contains references to 3D and 2D viewables.
+                const viewable = doc.getRoot().getDefaultGeometry();
+
+                const viewerDiv = document.getElementById("MyViewerDiv");
+                viewer = new Autodesk.Viewing.GuiViewer3D(viewerDiv, {
+                    extensions: ["Autodesk.DocumentBrowser"],
+                });
+                viewer.start();
+
+                viewer.loadDocumentNode(doc, viewable);
+            }
+
+			function activateTool(viewer) {
+				const drawTool = getCustomBoxSelectionTool(viewer);
+				viewer.toolController.registerTool(drawTool);
+				viewer.toolController.activateTool('custom-box-selection');
+			}
+
+            /**
+             * Custom forge viewer tool to restrict box-selection to the shift key
+             * @param viewer Reference to the forge viewer instance
+             * @see {@link https://aps.autodesk.com/blog/custom-tools-forge-viewer | Forge Documentation}
+             */
+            function getCustomBoxSelectionTool (viewer) {
+                if (!viewer?.toolController) return null;
+
+                const customTool = {
+                    active: false,
+                    getName: () => "custom-box-selection",
+                    getNames: () => ["custom-box-selection"],
+                    getPriority: () => 1, // Set priority in the tool chain
+                    activate: () => {
+                        customTool.active = true;
+                    },
+                    deactivate: () => {
+                        customTool.active = false;
+                    },
+                    handleKeyDown: (event, keyCode) => {
+                        // Prevent the default box-selection behaviour
+                        if (event.key === "Control" || keyCode === 17) {
+                            viewer.toolController.deactivateTool(
+                                "box-selection"
+                            );
+                            return true; // Stop propagation
+                        }
+
+                        // Enable new box-selection behaviour
+                        if (event.key === "Shift" || keyCode === 16) {
+                            viewer.toolController.activateTool("box-selection");
+                        }
+
+                        return false; // Allow propagation
+                    },
+                    handleKeyUp: (event, keyCode) => {
+                        // Disable box-selection after shift is released
+                        if (event.key === "Shift" || keyCode === 17) {
+                            viewer.toolController.deactivateTool(
+                                "box-selection"
+                            );
+                        }
+
+                        return false; // Allow propagation
+                    },
+                };
+
+                return customTool;
+            };
+        </script>
+    </body>
+</html>
